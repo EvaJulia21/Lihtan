@@ -1,0 +1,164 @@
+using Godot;
+using System;
+
+public partial class MapGenerator : Node3D
+{
+	public enum TileType
+	{
+		Floor,
+		Wall
+	}
+	
+	[Export] public int Width = 50;
+	[Export] public int Height = 50;
+	[Export] public float Density = 0.45f;
+	[Export] public int Iterations = 5;
+	
+	// Reference to template nodes
+	private Node3D floorTemplate;
+	private Node3D treeTemplate;
+	
+	public override void _Ready()
+	{
+		GD.Print("Starting map generation...");
+		
+		// Setup template nodes from existing children
+		SetupTemplateNodes();
+		
+		var grid = MakeNoiseGrid(Width, Height, Density);
+		grid = ApplyCellularAutomaton(grid, Iterations);
+		
+		for (int y = 0; y < Height; y++)
+		{
+			for (int x = 0; x < Width; x++)
+			{
+				if (grid[y, x] == TileType.Wall)
+					SpawnTree(new Vector3(x, 0, y));
+				else
+					SpawnFloor(new Vector3(x, 0, y));
+			}
+		}
+		
+		GD.Print($"Map generation complete! Created {Width}x{Height} tiles.");
+	}
+	
+	private void SetupTemplateNodes()
+	{
+		// Try to get existing child nodes to use as templates
+		floorTemplate = GetNodeOrNull<Node3D>("FloorTile");
+		treeTemplate = GetNodeOrNull<Node3D>("Tree");
+		
+		if (floorTemplate != null)
+		{
+			floorTemplate.Visible = false;
+			GD.Print("Using FloorTile child as template");
+		}
+		else
+		{
+			GD.PrintErr("FloorTile node not found!");
+		}
+		
+		if (treeTemplate != null)
+		{
+			treeTemplate.Visible = false;
+			GD.Print("Using Tree child as template");
+		}
+		else
+		{
+			GD.PrintErr("Tree node not found!");
+		}
+	}
+	
+	public TileType[,] MakeNoiseGrid(int width, int height, float density)
+	{
+		var grid = new TileType[height, width];
+		var rand = new RandomNumberGenerator();
+		rand.Randomize(); // Initialize the random number generator
+		
+		for (int y = 0; y < height; y++)
+		{
+			for (int x = 0; x < width; x++)
+			{
+				grid[y, x] = rand.Randf() < density ? TileType.Wall : TileType.Floor;
+			}
+		}
+		
+		return grid;
+	}
+	
+	public TileType[,] ApplyCellularAutomaton(TileType[,] grid, int iterations)
+	{
+		int height = grid.GetLength(0);
+		int width = grid.GetLength(1);
+		
+		for (int i = 0; i < iterations; i++)
+		{
+			var temp = (TileType[,])grid.Clone();
+			
+			for (int y = 0; y < height; y++)
+			{
+				for (int x = 0; x < width; x++)
+				{
+					int neighbors = CountWallNeighbors(temp, x, y, width, height);
+					grid[y, x] = neighbors > 4 ? TileType.Wall : TileType.Floor;
+				}
+			}
+		}
+		
+		return grid;
+	}
+	
+	private int CountWallNeighbors(TileType[,] grid, int x, int y, int width, int height)
+	{
+		int count = 0;
+		
+		for (int ny = y - 1; ny <= y + 1; ny++)
+		{
+			for (int nx = x - 1; nx <= x + 1; nx++)
+			{
+				// Skip the center cell
+				if (nx == x && ny == y) continue;
+				
+				// Treat out-of-bounds as walls
+				if (nx < 0 || ny < 0 || nx >= width || ny >= height)
+				{
+					count++;
+				}
+				else if (grid[ny, nx] == TileType.Wall)
+				{
+					count++;
+				}
+			}
+		}
+		
+		return count;
+	}
+	
+	private void SpawnFloor(Vector3 pos)
+	{
+		if (floorTemplate == null)
+		{
+			GD.PrintErr("No floor template available!");
+			return;
+		}
+		
+		var floor = floorTemplate.Duplicate() as Node3D;
+		floor.Visible = true;
+		floor.Position = pos;
+		AddChild(floor);
+	}
+	
+	private void SpawnTree(Vector3 pos)
+	{
+		if (treeTemplate == null)
+		{
+			GD.PrintErr("No tree template available!");
+			return;
+		}
+		
+		var tree = treeTemplate.Duplicate() as Node3D;
+		tree.Visible = true;
+		tree.Position = pos + Vector3.Up * 0.5f; // Slightly above ground
+		AddChild(tree);
+	}
+}
